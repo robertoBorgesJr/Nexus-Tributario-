@@ -1,0 +1,16 @@
+azure_subscription_id      = "00000000-0000-0000-0000-000000000000"
+location                   = "eastus2"
+environment                = "prod"
+resource_group_name        = "rg-nexus-tributario-prod"
+storage_account_name       = "stnexustributarioprod"
+workspace_resource_group_name = "rg-ecommerce-dataops-prod"
+workspace_name             = "dbw-ecommerce-dataops-prod"
+create_databricks_workspace = false
+metastore_id               = "00000000-0000-0000-0000-000000000000"
+databricks_admin_group     = "nexus-tributario-admins"
+databricks_data_engineer_group = "nexus-tributario-data-engineers"
+
+tags = {
+  CostCenter = "tributario"
+  Owner      = "data-platform"
+}
