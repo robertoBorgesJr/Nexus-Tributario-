@@ -15,12 +15,19 @@ Uso:
 """
 import argparse
 import os
-import xml.etree.ElementTree as ET
+import sys
 from pathlib import Path
+
+# Alinha driver e worker ao pyspark instalado no venv, ignorando SPARK_HOME do sistema.
+# Necessário quando há uma instalação separada de Spark (ex: C:\spark) com versão diferente.
+import pyspark as _pyspark
+os.environ["SPARK_HOME"]            = os.path.dirname(_pyspark.__file__)
+os.environ["PYSPARK_PYTHON"]        = sys.executable
+os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
-    col, input_file_name, lit, regexp_extract, split, trim, udf,
+    col, explode, input_file_name, regexp_extract, split, udf,
 )
 from pyspark.sql.types import (
     StringType, StructField, StructType, ArrayType,
@@ -37,9 +44,6 @@ ADLS_LANDING = f"{ADLS_BASE}/landing"
 LOCAL_RAW    = Path(__file__).parent.parent / "data" / "raw"
 LOCAL_BRONZE = Path(__file__).parent.parent / "data" / "bronze"
 
-NFE_NS = "http://www.portalfiscal.inf.br/nfe"
-
-
 # ── SparkSession ──────────────────────────────────────────────────────────────
 
 def get_spark(local: bool) -> SparkSession:
@@ -47,9 +51,16 @@ def get_spark(local: bool) -> SparkSession:
         SparkSession.builder
         .appName("nexus-tributario-ingestao-bronze")
         .config("spark.databricks.delta.schema.autoMerge.enabled", "true")
+        .config("spark.sql.execution.pyspark.udf.faulthandler.enabled", "true")
+        .config("spark.python.worker.faulthandler.enabled", "true")
     )
     if local:
-        builder = builder.master("local[*]")
+        builder = (
+            builder
+            .master("local[2]")
+            .config("spark.driver.memory", "2g")
+            .config("spark.executor.memory", "2g")
+        )
     return builder.getOrCreate()
 
 
@@ -90,39 +101,35 @@ NFE_ITEM_SCHEMA = StructType([
 ])
 
 
-def _tag(name: str) -> str:
-    return f"{{{NFE_NS}}}{name}"
-
-
-def _txt(el, *path) -> str:
-    node = el
-    for tag in path:
-        if node is None:
-            return ""
-        node = node.find(_tag(tag))
-    return (node.text or "").strip() if node is not None else ""
-
-
 @udf(returnType=NFE_CABECALHO_SCHEMA)
 def parse_nfe_cabecalho(xml_text: str):
+    import xml.etree.ElementTree as ET
+    NS = "http://www.portalfiscal.inf.br/nfe"
+    def t(name): return f"{{{NS}}}{name}"
+    def tx(el, *path):
+        node = el
+        for p in path:
+            if node is None: return ""
+            node = node.find(t(p))
+        return (node.text or "").strip() if node is not None else ""
     try:
         root = ET.fromstring(xml_text)
-        nfe  = root.find(_tag("NFe"))
-        inf  = nfe.find(_tag("infNFe"))
-        ide  = inf.find(_tag("ide"))
-        emit = inf.find(_tag("emit"))
-        dest = inf.find(_tag("dest"))
+        nfe  = root.find(t("NFe"))
+        inf  = nfe.find(t("infNFe"))
+        ide  = inf.find(t("ide"))
+        emit = inf.find(t("emit"))
+        dest = inf.find(t("dest"))
         chave = inf.get("Id", "").replace("NFe", "")
         return (
             chave,
-            _txt(emit, "CNPJ"),
-            _txt(emit, "enderEmit", "UF"),
-            _txt(dest, "CNPJ"),
-            _txt(dest, "enderDest", "UF"),
-            (_txt(ide, "dhEmi") or "")[:10].replace("-", ""),
-            _txt(ide, "serie"),
-            _txt(ide, "nNF"),
-            _txt(emit, "CRT"),
+            tx(emit, "CNPJ"),
+            tx(emit, "enderEmit", "UF"),
+            tx(dest, "CNPJ"),
+            tx(dest, "enderDest", "UF"),
+            (tx(ide, "dhEmi") or "")[:10].replace("-", ""),
+            tx(ide, "serie"),
+            tx(ide, "nNF"),
+            tx(emit, "CRT"),
         )
     except Exception:
         return None
@@ -130,43 +137,50 @@ def parse_nfe_cabecalho(xml_text: str):
 
 @udf(returnType=ArrayType(NFE_ITEM_SCHEMA))
 def parse_nfe_itens(xml_text: str):
+    import xml.etree.ElementTree as ET
+    NS = "http://www.portalfiscal.inf.br/nfe"
+    def t(name): return f"{{{NS}}}{name}"
+    def tx(el, *path):
+        node = el
+        for p in path:
+            if node is None: return ""
+            node = node.find(t(p))
+        return (node.text or "").strip() if node is not None else ""
     try:
         root = ET.fromstring(xml_text)
-        nfe  = root.find(_tag("NFe"))
-        inf  = nfe.find(_tag("infNFe"))
+        nfe  = root.find(t("NFe"))
+        inf  = nfe.find(t("infNFe"))
         chave = inf.get("Id", "").replace("NFe", "")
         itens = []
-        for det in inf.findall(_tag("det")):
-            num = det.get("nItem", "")
-            prod  = det.find(_tag("prod"))
-            imp   = det.find(_tag("imposto"))
-            icms_node = imp.find(_tag("ICMS")) if imp is not None else None
-            icms_tipo = (
-                icms_node[0] if icms_node is not None and len(icms_node) else None
-            )
-            ipi_node   = imp.find(_tag("IPI"))        if imp else None
-            ipi_trib   = ipi_node.find(_tag("IPITrib")) if ipi_node is not None else None
-            pis_node   = imp.find(_tag("PIS"))         if imp else None
-            pis_t      = pis_node[0]                   if pis_node is not None and len(pis_node) else None
-            cofins_node = imp.find(_tag("COFINS"))     if imp else None
-            cofins_t    = cofins_node[0]               if cofins_node is not None and len(cofins_node) else None
-            total = inf.find(_tag("total"))
-            icms_tot = total.find(_tag("ICMSTot")) if total is not None else None
+        for det in inf.findall(t("det")):
+            num  = det.get("nItem", "")
+            prod = det.find(t("prod"))
+            imp  = det.find(t("imposto"))
+            icms_node = imp.find(t("ICMS")) if imp is not None else None
+            icms_tipo = icms_node[0] if icms_node is not None and len(icms_node) else None
+            ipi_node  = imp.find(t("IPI"))    if imp is not None else None
+            ipi_trib  = ipi_node.find(t("IPITrib")) if ipi_node is not None else None
+            pis_node  = imp.find(t("PIS"))    if imp is not None else None
+            pis_t     = pis_node[0]           if pis_node is not None and len(pis_node) else None
+            cof_node  = imp.find(t("COFINS")) if imp is not None else None
+            cof_t     = cof_node[0]           if cof_node is not None and len(cof_node) else None
+            total    = inf.find(t("total"))
+            icms_tot = total.find(t("ICMSTot")) if total is not None else None
             itens.append((
                 chave, num,
-                _txt(prod, "cProd"), _txt(prod, "NCM"), _txt(prod, "CFOP"),
-                _txt(prod, "uCom"), _txt(prod, "qCom"), _txt(prod, "vUnCom"),
-                _txt(prod, "vProd"),
-                _txt(icms_tipo, "CST") if icms_tipo is not None else "",
-                _txt(icms_tipo, "vBC") if icms_tipo is not None else "",
-                _txt(icms_tipo, "pICMS") if icms_tipo is not None else "",
-                _txt(icms_tipo, "vICMS") if icms_tipo is not None else "",
-                _txt(ipi_trib, "vIPI") if ipi_trib is not None else "0.00",
-                _txt(pis_t, "CST")  if pis_t is not None else "",
-                _txt(pis_t, "vPIS") if pis_t is not None else "0.00",
-                _txt(cofins_t, "CST")     if cofins_t is not None else "",
-                _txt(cofins_t, "vCOFINS") if cofins_t is not None else "0.00",
-                _txt(icms_tot, "vNF") if icms_tot is not None else "",
+                tx(prod, "cProd"), tx(prod, "NCM"),  tx(prod, "CFOP"),
+                tx(prod, "uCom"),  tx(prod, "qCom"),  tx(prod, "vUnCom"),
+                tx(prod, "vProd"),
+                tx(icms_tipo, "CST")   if icms_tipo is not None else "",
+                tx(icms_tipo, "vBC")   if icms_tipo is not None else "",
+                tx(icms_tipo, "pICMS") if icms_tipo is not None else "",
+                tx(icms_tipo, "vICMS") if icms_tipo is not None else "",
+                tx(ipi_trib,  "vIPI")  if ipi_trib  is not None else "0.00",
+                tx(pis_t,  "CST")      if pis_t  is not None else "",
+                tx(pis_t,  "vPIS")     if pis_t  is not None else "0.00",
+                tx(cof_t,  "CST")      if cof_t  is not None else "",
+                tx(cof_t,  "vCOFINS")  if cof_t  is not None else "0.00",
+                tx(icms_tot, "vNF")    if icms_tot is not None else "",
             ))
         return itens
     except Exception:
@@ -175,18 +189,114 @@ def parse_nfe_itens(xml_text: str):
 
 # ── Ingestão NF-e ─────────────────────────────────────────────────────────────
 
+def _parse_nfe_python(xml_path: Path):
+    """Parseia um XML NF-e com Python puro. Retorna (cabecalho_dict, [itens_dict])."""
+    import xml.etree.ElementTree as ET
+    NS = "http://www.portalfiscal.inf.br/nfe"
+    def t(name): return f"{{{NS}}}{name}"
+    def tx(el, *path):
+        node = el
+        for p in path:
+            if node is None: return ""
+            node = node.find(t(p))
+        return (node.text or "").strip() if node is not None else ""
+
+    try:
+        root = ET.parse(xml_path).getroot()
+        nfe  = root.find(t("NFe"))
+        inf  = nfe.find(t("infNFe"))
+        ide  = inf.find(t("ide"))
+        emit = inf.find(t("emit"))
+        dest = inf.find(t("dest"))
+        chave = inf.get("Id", "").replace("NFe", "")
+
+        cab = {
+            "arquivo":           str(xml_path),
+            "chv_nfe":           chave,
+            "cnpj_emitente":     tx(emit, "CNPJ"),
+            "uf_emitente":       tx(emit, "enderEmit", "UF"),
+            "cnpj_destinatario": tx(dest, "CNPJ"),
+            "uf_destinatario":   tx(dest, "enderDest", "UF"),
+            "dt_emissao":        (tx(ide, "dhEmi") or "")[:10].replace("-", ""),
+            "serie":             tx(ide, "serie"),
+            "num_nf":            tx(ide, "nNF"),
+            "crt":               tx(emit, "CRT"),
+        }
+
+        itens = []
+        for det in inf.findall(t("det")):
+            prod     = det.find(t("prod"))
+            imp      = det.find(t("imposto"))
+            icms_n   = imp.find(t("ICMS"))    if imp is not None else None
+            icms_t   = icms_n[0]              if icms_n is not None and len(icms_n) else None
+            ipi_n    = imp.find(t("IPI"))     if imp is not None else None
+            ipi_t    = ipi_n.find(t("IPITrib")) if ipi_n is not None else None
+            pis_n    = imp.find(t("PIS"))     if imp is not None else None
+            pis_t    = pis_n[0]               if pis_n is not None and len(pis_n) else None
+            cof_n    = imp.find(t("COFINS"))  if imp is not None else None
+            cof_t    = cof_n[0]               if cof_n is not None and len(cof_n) else None
+            total    = inf.find(t("total"))
+            icms_tot = total.find(t("ICMSTot")) if total is not None else None
+            itens.append({
+                "chv_nfe":     chave,
+                "num_item":    det.get("nItem", ""),
+                "cod_produto": tx(prod, "cProd"),
+                "ncm":         tx(prod, "NCM"),
+                "cfop":        tx(prod, "CFOP"),
+                "ucom":        tx(prod, "uCom"),
+                "qtd":         tx(prod, "qCom"),
+                "v_unit":      tx(prod, "vUnCom"),
+                "v_prod":      tx(prod, "vProd"),
+                "cst_icms":    tx(icms_t, "CST")   if icms_t  is not None else "",
+                "v_bc_icms":   tx(icms_t, "vBC")   if icms_t  is not None else "",
+                "aliq_icms":   tx(icms_t, "pICMS") if icms_t  is not None else "",
+                "v_icms":      tx(icms_t, "vICMS") if icms_t  is not None else "",
+                "v_ipi":       tx(ipi_t,  "vIPI")  if ipi_t   is not None else "0.00",
+                "cst_pis":     tx(pis_t,  "CST")   if pis_t   is not None else "",
+                "v_pis":       tx(pis_t,  "vPIS")  if pis_t   is not None else "0.00",
+                "cst_cofins":  tx(cof_t,  "CST")   if cof_t   is not None else "",
+                "v_cofins":    tx(cof_t,  "vCOFINS") if cof_t is not None else "0.00",
+                "v_nf":        tx(icms_tot, "vNF") if icms_tot is not None else "",
+            })
+        return cab, itens
+    except Exception:
+        return None, []
+
+
 def ingerir_nfe_local(spark: SparkSession) -> None:
-    path = str(LOCAL_RAW / "nfe")
-    print(f"[NF-e] Lendo XMLs de {path}")
+    """Parseia XMLs NF-e com Python puro (sem UDF) e grava Parquet no bronze local."""
+    nfe_dir = LOCAL_RAW / "nfe"
+    print(f"[NF-e] Lendo XMLs de {nfe_dir}")
+
+    cabs, itens_flat = [], []
+    for xml_path in sorted(nfe_dir.rglob("*.xml")):
+        cab, itens = _parse_nfe_python(xml_path)
+        if cab:
+            cabs.append(cab)
+            itens_flat.extend(itens)
+
+    print(f"[NF-e] Parseados: {len(cabs)} cabecalhos, {len(itens_flat)} itens")
+
+    df_cab   = spark.createDataFrame(cabs)
+    df_itens = spark.createDataFrame(itens_flat)
+
+    dest_cab   = str(LOCAL_BRONZE / "nfe_cabecalho")
+    dest_itens = str(LOCAL_BRONZE / "nfe_itens")
+    df_cab.write.mode("overwrite").parquet(dest_cab)
+    df_itens.write.mode("overwrite").parquet(dest_itens)
+    print(f"[NF-e] nfe_cabecalho -> {dest_cab}  ({len(cabs)} registros)")
+    print(f"[NF-e] nfe_itens     -> {dest_itens} ({len(itens_flat)} registros)")
+
+
+def ingerir_nfe_databricks(spark: SparkSession) -> None:
+    nfe_path = f"{ADLS_LANDING}/nfe"
+    print(f"[NF-e] Lendo XMLs de {nfe_path}")
 
     df_raw = (
         spark.read
-        .option("wholetext", "true")
-        .text(path, recursiveFileLookup=True)
+        .text(nfe_path, wholetext=True, recursiveFileLookup=True)
         .withColumn("arquivo", input_file_name())
     )
-
-    from pyspark.sql.functions import explode
 
     df_cab = (
         df_raw
@@ -221,26 +331,17 @@ def ingerir_nfe_local(spark: SparkSession) -> None:
         .filter(col("chv_nfe").isNotNull())
     )
 
-    dest_cab   = str(LOCAL_BRONZE / "nfe_cabecalho")
-    dest_itens = str(LOCAL_BRONZE / "nfe_itens")
-    df_cab.write.mode("overwrite").parquet(dest_cab)
-    df_itens.write.mode("overwrite").parquet(dest_itens)
-    print(f"[NF-e] nfe_cabecalho -> {dest_cab}  ({df_cab.count()} registros)")
-    print(f"[NF-e] nfe_itens     -> {dest_itens} ({df_itens.count()} registros)")
-
-
-def ingerir_nfe_databricks(spark: SparkSession) -> None:
-    nfe_path   = f"{ADLS_LANDING}/nfe"
-    checkpoint = f"{ADLS_BASE}/checkpoints/nfe_autoloader"
-    df = (
-        spark.readStream
-        .format("cloudFiles")
-        .option("cloudFiles.format", "xml")
-        .option("rowTag", "nfeProc")
-        .option("cloudFiles.schemaLocation", checkpoint)
-        .load(nfe_path)
+    (
+        df_cab.write.format("delta").mode("overwrite")
+        .option("mergeSchema", "true")
+        .saveAsTable(f"{CATALOG}.bronze.nfe_cabecalho")
     )
-    print(f"[NF-e] Auto Loader configurado: {nfe_path} -> {CATALOG}.bronze.nfe_cabecalho")
+    (
+        df_itens.write.format("delta").mode("overwrite")
+        .option("mergeSchema", "true")
+        .saveAsTable(f"{CATALOG}.bronze.nfe_itens")
+    )
+    print(f"[NF-e] {CATALOG}.bronze.nfe_cabecalho e nfe_itens gravados")
 
 
 # ── Ingestão SPED Fiscal ──────────────────────────────────────────────────────

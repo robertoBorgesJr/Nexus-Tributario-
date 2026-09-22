@@ -16,6 +16,9 @@ __pycache__/
 .venv/
 .env
 
+# Logs e saídas de execução local
+result_*.txt
+
 # dbt
 dbt/target/
 dbt/dbt_packages/
