@@ -3,3 +3,20 @@
 .terraform/
 terraform.tfvars
 crash.log
+
+# Dados gerados (grandes, reproduzíveis via run_all.py / ingest_to_bronze.py --local)
+data/raw/nfe/**/*.xml
+data/raw/sped_fiscal/**/*.txt
+data/raw/efd_contribuicoes/**/*.txt
+data/bronze/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# dbt
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/

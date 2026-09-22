@@ -1,4 +1,4 @@
-azure_subscription_id      = "00000000-0000-0000-0000-000000000000"
+azure_subscription_id      = "74c29170-a25d-4dd1-a237-a31a21bfe6cd"
 location                   = "eastus2"
 environment                = "prod"
 resource_group_name        = "rg-nexus-tributario-prod"
@@ -6,7 +6,7 @@ storage_account_name       = "stnexustributarioprod"
 workspace_resource_group_name = "rg-ecommerce-dataops-prod"
 workspace_name             = "dbw-ecommerce-dataops-prod"
 create_databricks_workspace = false
-metastore_id               = "00000000-0000-0000-0000-000000000000"
+metastore_id               = "0e36e8d6-6803-497f-9102-f2af71bec95e"
 databricks_admin_group     = "nexus-tributario-admins"
 databricks_data_engineer_group = "nexus-tributario-data-engineers"
 

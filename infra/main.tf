@@ -151,19 +151,14 @@ resource "databricks_external_location" "nexus" {
   credential_name = databricks_storage_credential.nexus.name
   force_destroy   = false
   comment         = "Local externo ADLS Gen2 do Nexus Tributario."
-}
-
-resource "databricks_metastore_assignment" "nexus" {
-  workspace_id = local.workspace_id
-  metastore_id = var.metastore_id
+  depends_on      = [azurerm_role_assignment.storage_contributor]
 }
 
 resource "databricks_catalog" "nexus" {
-  name         = "nexus_tributario_${var.environment}"
-  storage_root = databricks_external_location.nexus.url
+  name          = "nexus_tributario_${var.environment}"
+  storage_root  = databricks_external_location.nexus.url
   force_destroy = false
-  comment      = "Catalogo de dados tributarios do Nexus."
-  depends_on   = [databricks_metastore_assignment.nexus]
+  comment       = "Catalogo de dados tributarios do Nexus."
 }
 
 resource "databricks_schema" "layers" {

@@ -1,0 +1,22 @@
+# ── Geração de dados sintéticos ───────────────────────────────────────────────
+Jinja2>=3.1
+Faker>=26.0
+
+# ── Upload para ADLS Gen2 ─────────────────────────────────────────────────────
+azure-storage-blob>=12.20
+azure-identity>=1.17
+
+# ── Ingestão / transformação Spark ────────────────────────────────────────────
+# pyspark: para execução local (desenvolvimento e testes)
+# databricks-connect: substitui pyspark quando há cluster Databricks disponível
+# NÃO instale os dois ao mesmo tempo — são mutuamente exclusivos
+pyspark>=3.5
+
+# databricks-connect>=14.3   # descomente e remova a linha pyspark para produção
+
+# ── dbt (adaptador Databricks) ───────────────────────────────────────────────
+dbt-databricks>=1.8
+# dbt-utils é um pacote dbt, não pip — instalado via: dbt deps (veja dbt/packages.yml)
+
+# ── Utilitários ──────────────────────────────────────────────────────────────
+python-dotenv>=1.0

@@ -1,0 +1,13 @@
+[
+  {"cfop": "1101", "descricao": "Compra para industrializacao - dentro do estado", "operacao": "entrada"},
+  {"cfop": "1102", "descricao": "Compra para comercializacao - dentro do estado", "operacao": "entrada"},
+  {"cfop": "2101", "descricao": "Compra para industrializacao - de outro estado", "operacao": "entrada"},
+  {"cfop": "2102", "descricao": "Compra para comercializacao - de outro estado", "operacao": "entrada"},
+  {"cfop": "5101", "descricao": "Venda de producao do estabelecimento - dentro do estado", "operacao": "saida"},
+  {"cfop": "5102", "descricao": "Venda de mercadoria adquirida para revenda - dentro do estado", "operacao": "saida"},
+  {"cfop": "5405", "descricao": "Venda de mercadoria adquirida para revenda em operacao com ST - dentro do estado", "operacao": "saida"},
+  {"cfop": "6101", "descricao": "Venda de producao do estabelecimento - para outro estado", "operacao": "saida"},
+  {"cfop": "6102", "descricao": "Venda de mercadoria adquirida para revenda - para outro estado", "operacao": "saida"},
+  {"cfop": "5949", "descricao": "Outra saida de mercadoria ou prestacao de servico - dentro do estado", "operacao": "saida"},
+  {"cfop": "6949", "descricao": "Outra saida de mercadoria ou prestacao de servico - para outro estado", "operacao": "saida"}
+]

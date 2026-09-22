@@ -1,0 +1,42 @@
+version: 2
+
+sources:
+  - name: bronze_nfe
+    database: "{{ var('catalog') }}"
+    schema: "{{ var('bronze_schema') }}"
+    description: "NF-e ingeridas pelo Auto Loader a partir dos XMLs modelo 55"
+    tables:
+      - name: nfe_cabecalho
+        description: "Cabeçalho da NF-e (uma linha por nota)"
+        columns:
+          - name: chv_nfe
+            description: "Chave de acesso (44 dígitos)"
+            tests: [unique, not_null]
+      - name: nfe_itens
+        description: "Itens da NF-e (uma linha por item)"
+
+  - name: bronze_sped_fiscal
+    database: "{{ var('catalog') }}"
+    schema: "{{ var('bronze_schema') }}"
+    description: "SPED Fiscal (EFD ICMS/IPI) — registros C100, C170 e E110"
+    tables:
+      - name: sped_fiscal_c100
+        description: "Cabeçalho dos documentos fiscais no SPED"
+      - name: sped_fiscal_c170
+        description: "Itens dos documentos fiscais no SPED"
+      - name: sped_fiscal_e110
+        description: "Apuração mensal do ICMS por empresa"
+
+  - name: bronze_efd_contrib
+    database: "{{ var('catalog') }}"
+    schema: "{{ var('bronze_schema') }}"
+    description: "EFD Contribuições (PIS/COFINS) — registros C100, C170, M200 e M600"
+    tables:
+      - name: efd_contrib_c100
+        description: "Cabeçalho dos documentos na EFD Contribuições"
+      - name: efd_contrib_c170
+        description: "Itens dos documentos na EFD Contribuições"
+      - name: efd_contrib_m200
+        description: "Apuração mensal do PIS"
+      - name: efd_contrib_m600
+        description: "Apuração mensal do COFINS"

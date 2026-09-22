@@ -1,0 +1,12 @@
+[
+  {"ncm": "84713012", "descricao": "Maquinas automaticas para processamento de dados - portateis (notebook/laptop)", "aliq_ipi": 5.0},
+  {"ncm": "84713019", "descricao": "Maquinas automaticas para processamento de dados - portateis - outros", "aliq_ipi": 5.0},
+  {"ncm": "84716090", "descricao": "Unidades de entrada - teclados, mouses e outros", "aliq_ipi": 5.0},
+  {"ncm": "84717090", "descricao": "Unidades de armazenamento - HD externo", "aliq_ipi": 5.0},
+  {"ncm": "85285210", "descricao": "Monitores para video - LCD/LED", "aliq_ipi": 10.0},
+  {"ncm": "85044010", "descricao": "Carregadores e fontes de alimentacao", "aliq_ipi": 0.0},
+  {"ncm": "85444299", "descricao": "Cabos de transmissao de dados", "aliq_ipi": 0.0},
+  {"ncm": "85176291", "descricao": "Smartphones", "aliq_ipi": 0.0},
+  {"ncm": "85258019", "descricao": "Cameras digitais", "aliq_ipi": 15.0},
+  {"ncm": "90318010", "descricao": "Instrumentos de medicao eletronicos", "aliq_ipi": 0.0}
+]
