@@ -7,8 +7,6 @@ workspace_resource_group_name = "rg-ecommerce-dataops-prod"
 workspace_name             = "dbw-ecommerce-dataops-prod"
 create_databricks_workspace = false
 metastore_id               = "0e36e8d6-6803-497f-9102-f2af71bec95e"
-databricks_admin_group     = "nexus-tributario-admins"
-databricks_data_engineer_group = "nexus-tributario-data-engineers"
 
 tags = {
   CostCenter = "tributario"

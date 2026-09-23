@@ -6,8 +6,9 @@ Modos de execução
 --local   PySpark local (sem Databricks). Lê data/raw/, grava em data/bronze/ como Parquet.
           Use para desenvolvimento e validação de schema.
 
-(padrão) Databricks Runtime no cluster. Lê do ADLS via Auto Loader (cloudFiles),
-          grava em Unity Catalog como Delta. Requer cluster com Databricks Runtime ≥ 13.
+(padrão) Databricks Connect + Serverless Compute. Lê do ADLS via Auto Loader (cloudFiles),
+          grava em Unity Catalog como Delta com checkpoint incremental.
+          Requer databricks-connect>=15.1. Sem necessidade de cluster dedicado.
 
 Uso:
     python ingestao/ingest_to_bronze.py --local [--source nfe|sped|efd|all]
@@ -18,12 +19,8 @@ import os
 import sys
 from pathlib import Path
 
-# Alinha driver e worker ao pyspark instalado no venv, ignorando SPARK_HOME do sistema.
-# Necessário quando há uma instalação separada de Spark (ex: C:\spark) com versão diferente.
-import pyspark as _pyspark
-os.environ["SPARK_HOME"]            = os.path.dirname(_pyspark.__file__)
-os.environ["PYSPARK_PYTHON"]        = sys.executable
-os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
+from dotenv import load_dotenv
+load_dotenv()  # carrega .env se existir; variáveis já definidas no ambiente têm precedência
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
@@ -34,12 +31,13 @@ from pyspark.sql.types import (
 )
 
 # ── Configuração ──────────────────────────────────────────────────────────────
-STORAGE_ACCOUNT = os.getenv("ADLS_STORAGE_ACCOUNT", "stnexustributarioprod")
-FILESYSTEM      = os.getenv("ADLS_FILESYSTEM",       "nexus-data")
-CATALOG         = os.getenv("DATABRICKS_CATALOG",    "nexus_tributario_prod")
+STORAGE_ACCOUNT  = os.getenv("ADLS_STORAGE_ACCOUNT", "stnexustributarioprod")
+FILESYSTEM       = os.getenv("ADLS_FILESYSTEM",       "nexus-data")
+CATALOG          = os.getenv("DATABRICKS_CATALOG",    "nexus_tributario_prod")
 
-ADLS_BASE = f"abfss://{FILESYSTEM}@{STORAGE_ACCOUNT}.dfs.core.windows.net"
-ADLS_LANDING = f"{ADLS_BASE}/landing"
+ADLS_BASE        = f"abfss://{FILESYSTEM}@{STORAGE_ACCOUNT}.dfs.core.windows.net"
+ADLS_LANDING     = f"{ADLS_BASE}/landing"
+ADLS_CHECKPOINTS = f"{ADLS_BASE}/checkpoints/bronze"
 
 LOCAL_RAW    = Path(__file__).parent.parent / "data" / "raw"
 LOCAL_BRONZE = Path(__file__).parent.parent / "data" / "bronze"
@@ -47,21 +45,53 @@ LOCAL_BRONZE = Path(__file__).parent.parent / "data" / "bronze"
 # ── SparkSession ──────────────────────────────────────────────────────────────
 
 def get_spark(local: bool) -> SparkSession:
-    builder = (
-        SparkSession.builder
-        .appName("nexus-tributario-ingestao-bronze")
-        .config("spark.databricks.delta.schema.autoMerge.enabled", "true")
-        .config("spark.sql.execution.pyspark.udf.faulthandler.enabled", "true")
-        .config("spark.python.worker.faulthandler.enabled", "true")
-    )
     if local:
-        builder = (
-            builder
+        # Alinha driver e worker ao pyspark do venv, ignorando SPARK_HOME do sistema.
+        # Necessário quando há instalação separada de Spark (ex: C:\spark) com outra versão.
+        import pyspark as _pyspark
+        os.environ["SPARK_HOME"]            = os.path.dirname(_pyspark.__file__)
+        os.environ["PYSPARK_PYTHON"]        = sys.executable
+        os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
+        return (
+            SparkSession.builder
+            .appName("nexus-tributario-ingestao-bronze")
             .master("local[2]")
             .config("spark.driver.memory", "2g")
             .config("spark.executor.memory", "2g")
+            .config("spark.databricks.delta.schema.autoMerge.enabled", "true")
+            .config("spark.sql.execution.pyspark.udf.faulthandler.enabled", "true")
+            .config("spark.python.worker.faulthandler.enabled", "true")
+            .getOrCreate()
         )
-    return builder.getOrCreate()
+
+    # Databricks Connect com Serverless Compute via Unified Auth.
+    # Autenticação e roteamento lidos automaticamente de ~/.databrickscfg:
+    #   host, token, serverless_compute_id = auto
+    # Para CI/CD, defina as variáveis DATABRICKS_HOST, DATABRICKS_TOKEN e
+    # DATABRICKS_SERVERLESS_COMPUTE_ID como variáveis de sistema (não no .env).
+    # Substitui pyspark — os dois pacotes são mutuamente exclusivos no mesmo venv.
+    try:
+        from databricks.connect import DatabricksSession
+    except ModuleNotFoundError:
+        raise SystemExit(
+            "\n[ERRO] databricks-connect não encontrado.\n"
+            "  Instale:  pip uninstall pyspark databricks-connect -y && pip install 'databricks-connect>=15.1'\n"
+            "  Para rodar localmente sem Databricks, use: --local\n"
+        )
+
+    try:
+        # DatabricksSession.builder não suporta .appName() — API limitada ao Connect.
+        return DatabricksSession.builder.getOrCreate()
+    except Exception as exc:
+        raise SystemExit(
+            "\n[ERRO] Falha ao conectar ao Databricks Serverless.\n"
+            "  Configure ~/.databrickscfg com:\n"
+            "    [DEFAULT]\n"
+            "    host                  = https://adb-XXXXXXXXXX.azuredatabricks.net\n"
+            "    token                 = dapi...\n"
+            "    serverless_compute_id = auto\n"
+            f"  Detalhe: {exc}\n"
+        ) from exc
 
 
 # ── UDFs para parse de NF-e XML ───────────────────────────────────────────────
@@ -131,6 +161,8 @@ def parse_nfe_cabecalho(xml_text: str):
             tx(ide, "nNF"),
             tx(emit, "CRT"),
         )
+    except ET.ParseError:
+        return None  # XML malformado — contável downstream via filter(chv_nfe.isNull())
     except Exception:
         return None
 
@@ -183,6 +215,8 @@ def parse_nfe_itens(xml_text: str):
                 tx(icms_tot, "vNF")    if icms_tot is not None else "",
             ))
         return itens
+    except ET.ParseError:
+        return []
     except Exception:
         return []
 
@@ -210,6 +244,7 @@ def _parse_nfe_python(xml_path: Path):
         dest = inf.find(t("dest"))
         chave = inf.get("Id", "").replace("NFe", "")
 
+        dt_emissao = (tx(ide, "dhEmi") or "")[:10].replace("-", "")
         cab = {
             "arquivo":           str(xml_path),
             "chv_nfe":           chave,
@@ -217,7 +252,10 @@ def _parse_nfe_python(xml_path: Path):
             "uf_emitente":       tx(emit, "enderEmit", "UF"),
             "cnpj_destinatario": tx(dest, "CNPJ"),
             "uf_destinatario":   tx(dest, "enderDest", "UF"),
-            "dt_emissao":        (tx(ide, "dhEmi") or "")[:10].replace("-", ""),
+            "dt_emissao":        dt_emissao,
+            # competencia = YYYYMM extraído de dt_emissao (primeiros 6 chars de YYYYMMDD).
+            # Usado como chave de partição para alinhar com SPED/EFD.
+            "competencia":       dt_emissao[:6],
             "serie":             tx(ide, "serie"),
             "num_nf":            tx(ide, "nNF"),
             "crt":               tx(emit, "CRT"),
@@ -239,6 +277,11 @@ def _parse_nfe_python(xml_path: Path):
             icms_tot = total.find(t("ICMSTot")) if total is not None else None
             itens.append({
                 "chv_nfe":     chave,
+                # competencia = dt_emissao[:6] herdado do cabeçalho do mesmo documento.
+                # Usar dt_emissao (e não chv_nfe) mantém a mesma fonte de verdade das
+                # duas tabelas, evitando dessincronização se a data codificada na chave
+                # divergir da data de emissão declarada no XML.
+                "competencia": dt_emissao[:6],
                 "num_item":    det.get("nItem", ""),
                 "cod_produto": tx(prod, "cProd"),
                 "ncm":         tx(prod, "NCM"),
@@ -293,58 +336,75 @@ def ingerir_nfe_databricks(spark: SparkSession) -> None:
     print(f"[NF-e] Lendo XMLs de {nfe_path}")
 
     df_raw = (
-        spark.read
-        .text(nfe_path, wholetext=True, recursiveFileLookup=True)
-        .withColumn("arquivo", input_file_name())
+        spark.readStream
+        .format("cloudFiles")
+        .option("cloudFiles.format", "text")
+        .option("wholeText", "true")
+        .option("recursiveFileLookup", "true")
+        .load(nfe_path)
+        .withColumn("arquivo", col("_metadata.file_path"))
     )
 
-    df_cab = (
-        df_raw
-        .withColumn("cab", parse_nfe_cabecalho(col("value")))
-        .select(
-            col("arquivo"),
-            col("cab.chv_nfe"),        col("cab.cnpj_emitente"),
-            col("cab.uf_emitente"),    col("cab.cnpj_destinatario"),
-            col("cab.uf_destinatario"),col("cab.dt_emissao"),
-            col("cab.serie"),          col("cab.num_nf"),
-            col("cab.crt"),
+    def _write_batch(batch_df, _):
+        df_cab = (
+            batch_df
+            .withColumn("cab", parse_nfe_cabecalho(col("value")))
+            .select(
+                col("arquivo"),
+                col("cab.chv_nfe"),         col("cab.cnpj_emitente"),
+                col("cab.uf_emitente"),     col("cab.cnpj_destinatario"),
+                col("cab.uf_destinatario"), col("cab.dt_emissao"),
+                col("cab.serie"),           col("cab.num_nf"),
+                col("cab.crt"),
+            )
+            .filter(col("chv_nfe").isNotNull())
+            # competencia = YYYYMM derivado de dt_emissao (YYYYMMDD → primeiros 6 chars).
+            # Fonte de verdade para a partição: campo semântico do XML, não a chave técnica.
+            .withColumn("competencia", col("dt_emissao").substr(1, 6))
         )
-        .filter(col("chv_nfe").isNotNull())
-    )
-
-    df_itens = (
-        df_raw
-        .withColumn("itens", parse_nfe_itens(col("value")))
-        .withColumn("item", explode(col("itens")))
-        .select(
-            col("item.chv_nfe"),    col("item.num_item"),
-            col("item.cod_produto"),col("item.ncm"),
-            col("item.cfop"),       col("item.ucom"),
-            col("item.qtd"),        col("item.v_unit"),
-            col("item.v_prod"),     col("item.cst_icms"),
-            col("item.v_bc_icms"),  col("item.aliq_icms"),
-            col("item.v_icms"),     col("item.v_ipi"),
-            col("item.cst_pis"),    col("item.v_pis"),
-            col("item.cst_cofins"), col("item.v_cofins"),
-            col("item.v_nf"),
+        df_itens = (
+            batch_df
+            .withColumn("itens", parse_nfe_itens(col("value")))
+            .withColumn("item", explode(col("itens")))
+            .select(
+                col("item.chv_nfe"),    col("item.num_item"),
+                col("item.cod_produto"),col("item.ncm"),
+                col("item.cfop"),       col("item.ucom"),
+                col("item.qtd"),        col("item.v_unit"),
+                col("item.v_prod"),     col("item.cst_icms"),
+                col("item.v_bc_icms"),  col("item.aliq_icms"),
+                col("item.v_icms"),     col("item.v_ipi"),
+                col("item.cst_pis"),    col("item.v_pis"),
+                col("item.cst_cofins"), col("item.v_cofins"),
+                col("item.v_nf"),
+            )
+            .filter(col("chv_nfe").isNotNull())
+            # competencia herdada de df_cab via join em chv_nfe.
+            # Garante que ambas as tabelas usem dt_emissao como única fonte de verdade,
+            # evitando dessincronização caso a data codificada na chave difira do XML.
+            .join(df_cab.select("chv_nfe", "competencia"), on="chv_nfe", how="left")
         )
-        .filter(col("chv_nfe").isNotNull())
-    )
+        (df_cab.write.format("delta").mode("append")
+            .option("mergeSchema", "true")
+            .partitionBy("competencia")
+            .saveAsTable(f"{CATALOG}.bronze.nfe_cabecalho"))
+        (df_itens.write.format("delta").mode("append")
+            .option("mergeSchema", "true")
+            .partitionBy("competencia")
+            .saveAsTable(f"{CATALOG}.bronze.nfe_itens"))
 
     (
-        df_cab.write.format("delta").mode("overwrite")
-        .option("mergeSchema", "true")
-        .saveAsTable(f"{CATALOG}.bronze.nfe_cabecalho")
+        df_raw.writeStream
+        .option("checkpointLocation", f"{ADLS_CHECKPOINTS}/nfe")
+        .trigger(availableNow=True)
+        .foreachBatch(_write_batch)
+        .start()
+        .awaitTermination()
     )
-    (
-        df_itens.write.format("delta").mode("overwrite")
-        .option("mergeSchema", "true")
-        .saveAsTable(f"{CATALOG}.bronze.nfe_itens")
-    )
-    print(f"[NF-e] {CATALOG}.bronze.nfe_cabecalho e nfe_itens gravados")
+    print(f"[NF-e] {CATALOG}.bronze.nfe_cabecalho e nfe_itens atualizados")
 
 
-# ── Ingestão SPED Fiscal ──────────────────────────────────────────────────────
+# ── Helpers pipe-delimitados (SPED Fiscal / EFD Contribuições) ────────────────
 
 SPED_REGISTROS = {
     "C100": ["ind_oper", "ind_emit", "cod_part", "cod_mod", "cod_sit",
@@ -368,63 +428,6 @@ SPED_REGISTROS = {
              "vl_sld_credor_transp", "deb_esp"],
 }
 
-
-def _ingerir_pipe_delimited(spark, path: str, registros: dict, destino_base):
-    df_raw = (
-        spark.read.text(path, recursiveFileLookup=True)
-        .withColumn("arquivo",      input_file_name())
-        .withColumn("cnpj_empresa", regexp_extract(col("arquivo"), r"[/\\](\d{14})[/\\]", 1))
-        .withColumn("competencia",  regexp_extract(col("arquivo"), r"_(\d{6})\.txt", 1))
-        .withColumn("campos",       split(col("value"), "\\|"))
-        .withColumn("registro",     col("campos")[1])
-    )
-
-    resultados = {}
-    for reg, colunas in registros.items():
-        df_reg = df_raw.filter(col("registro") == reg)
-        for i, nome in enumerate(colunas, start=2):
-            df_reg = df_reg.withColumn(nome, col("campos")[i])
-        df_reg = df_reg.drop("value", "campos", "registro")
-        resultados[reg] = df_reg
-
-        dest = str(destino_base / f"sped_fiscal_{reg.lower()}")
-        df_reg.write.mode("overwrite").parquet(dest)
-        print(f"  {reg} -> {dest} ({df_reg.count()} registros)")
-
-    return resultados
-
-
-def ingerir_sped_local(spark: SparkSession) -> None:
-    path = str(LOCAL_RAW / "sped_fiscal")
-    print(f"[SPED] Lendo arquivos de {path}")
-    _ingerir_pipe_delimited(spark, path, SPED_REGISTROS, LOCAL_BRONZE)
-
-
-def ingerir_sped_databricks(spark: SparkSession) -> None:
-    raw_path = f"{ADLS_LANDING}/sped_fiscal"
-    df_raw = (
-        spark.read.text(raw_path, recursiveFileLookup=True)
-        .withColumn("arquivo",      input_file_name())
-        .withColumn("cnpj_empresa", regexp_extract(col("arquivo"), r"/(\d{14})/", 1))
-        .withColumn("competencia",  regexp_extract(col("arquivo"), r"_(\d{6})\.txt", 1))
-        .withColumn("campos",       split(col("value"), "\\|"))
-        .withColumn("registro",     col("campos")[1])
-    )
-    for reg, colunas in SPED_REGISTROS.items():
-        df_reg = df_raw.filter(col("registro") == reg)
-        for i, nome in enumerate(colunas, start=2):
-            df_reg = df_reg.withColumn(nome, col("campos")[i])
-        (
-            df_reg.drop("value", "campos", "registro")
-            .write.format("delta").mode("overwrite")
-            .option("mergeSchema", "true")
-            .saveAsTable(f"{CATALOG}.bronze.sped_fiscal_{reg.lower()}")
-        )
-        print(f"[SPED] {CATALOG}.bronze.sped_fiscal_{reg.lower()} gravado")
-
-
-# ── Ingestão EFD Contribuições ────────────────────────────────────────────────
-
 EFD_REGISTROS = {
     "C100": ["ind_oper", "ind_emit", "cod_part", "cod_mod", "cod_sit",
              "ser", "num_doc", "chv_nfe", "dt_doc", "dt_e_s", "vl_doc",
@@ -444,10 +447,14 @@ EFD_REGISTROS = {
 }
 
 
-def ingerir_efd_local(spark: SparkSession) -> None:
-    path = str(LOCAL_RAW / "efd_contribuicoes")
-    print(f"[EFD]  Lendo arquivos de {path}")
-
+def _ingerir_pipe_delimited_local(
+    spark: SparkSession,
+    path: str,
+    registros: dict,
+    destino_base: Path,
+    prefix: str,
+) -> None:
+    """Parseia arquivos pipe-delimitados localmente e grava Parquet por tipo de registro."""
     df_raw = (
         spark.read.text(path, recursiveFileLookup=True)
         .withColumn("arquivo",      input_file_name())
@@ -456,38 +463,104 @@ def ingerir_efd_local(spark: SparkSession) -> None:
         .withColumn("campos",       split(col("value"), "\\|"))
         .withColumn("registro",     col("campos")[1])
     )
-
-    for reg, colunas in EFD_REGISTROS.items():
+    for reg, colunas in registros.items():
         df_reg = df_raw.filter(col("registro") == reg)
         for i, nome in enumerate(colunas, start=2):
             df_reg = df_reg.withColumn(nome, col("campos")[i])
         df_reg = df_reg.drop("value", "campos", "registro")
-        dest = str(LOCAL_BRONZE / f"efd_contrib_{reg.lower()}")
+        dest = str(destino_base / f"{prefix}_{reg.lower()}")
         df_reg.write.mode("overwrite").parquet(dest)
-        print(f"  {reg} -> {dest} ({df_reg.count()} registros)")
+        print(f"  {reg} -> {dest}")
 
 
-def ingerir_efd_databricks(spark: SparkSession) -> None:
-    raw_path = f"{ADLS_LANDING}/efd_contribuicoes"
+def _ingerir_pipe_delimited_databricks(
+    spark: SparkSession,
+    landing_path: str,
+    registros: dict,
+    table_prefix: str,
+    checkpoint_key: str,
+) -> None:
+    """Auto Loader + foreachBatch para arquivos pipe-delimitados (SPED/EFD).
+
+    Usa trigger(availableNow=True): processa todos os arquivos novos desde o último
+    checkpoint e para — comportamento equivalente a um batch, mas com rastreamento
+    incremental via Auto Loader.
+    """
     df_raw = (
-        spark.read.text(raw_path, recursiveFileLookup=True)
-        .withColumn("arquivo",      input_file_name())
+        spark.readStream
+        .format("cloudFiles")
+        .option("cloudFiles.format", "text")
+        .option("recursiveFileLookup", "true")
+        .load(landing_path)
+        .withColumn("arquivo",      col("_metadata.file_path"))
         .withColumn("cnpj_empresa", regexp_extract(col("arquivo"), r"/(\d{14})/", 1))
         .withColumn("competencia",  regexp_extract(col("arquivo"), r"_(\d{6})\.txt", 1))
         .withColumn("campos",       split(col("value"), "\\|"))
         .withColumn("registro",     col("campos")[1])
     )
-    for reg, colunas in EFD_REGISTROS.items():
-        df_reg = df_raw.filter(col("registro") == reg)
-        for i, nome in enumerate(colunas, start=2):
-            df_reg = df_reg.withColumn(nome, col("campos")[i])
-        (
-            df_reg.drop("value", "campos", "registro")
-            .write.format("delta").mode("overwrite")
-            .option("mergeSchema", "true")
-            .saveAsTable(f"{CATALOG}.bronze.efd_contrib_{reg.lower()}")
-        )
-        print(f"[EFD]  {CATALOG}.bronze.efd_contrib_{reg.lower()} gravado")
+
+    def _write_batch(batch_df, _):
+        for reg, colunas in registros.items():
+            df_reg = batch_df.filter(col("registro") == reg)
+            for i, nome in enumerate(colunas, start=2):
+                df_reg = df_reg.withColumn(nome, col("campos")[i])
+            (
+                df_reg.drop("value", "campos", "registro")
+                .write.format("delta").mode("append")
+                .option("mergeSchema", "true")
+                .partitionBy("competencia")
+                .saveAsTable(f"{CATALOG}.bronze.{table_prefix}_{reg.lower()}")
+            )
+            print(f"  {reg} -> {CATALOG}.bronze.{table_prefix}_{reg.lower()}")
+
+    (
+        df_raw.writeStream
+        .option("checkpointLocation", f"{ADLS_CHECKPOINTS}/{checkpoint_key}")
+        .trigger(availableNow=True)
+        .foreachBatch(_write_batch)
+        .start()
+        .awaitTermination()
+    )
+
+
+# ── Ingestão SPED Fiscal ──────────────────────────────────────────────────────
+
+def ingerir_sped_local(spark: SparkSession) -> None:
+    path = str(LOCAL_RAW / "sped_fiscal")
+    print(f"[SPED] Lendo arquivos de {path}")
+    _ingerir_pipe_delimited_local(spark, path, SPED_REGISTROS, LOCAL_BRONZE, "sped_fiscal")
+
+
+def ingerir_sped_databricks(spark: SparkSession) -> None:
+    print(f"[SPED] Lendo de {ADLS_LANDING}/sped_fiscal")
+    _ingerir_pipe_delimited_databricks(
+        spark,
+        landing_path=f"{ADLS_LANDING}/sped_fiscal",
+        registros=SPED_REGISTROS,
+        table_prefix="sped_fiscal",
+        checkpoint_key="sped_fiscal",
+    )
+    print(f"[SPED] Tabelas {CATALOG}.bronze.sped_fiscal_* atualizadas")
+
+
+# ── Ingestão EFD Contribuições ────────────────────────────────────────────────
+
+def ingerir_efd_local(spark: SparkSession) -> None:
+    path = str(LOCAL_RAW / "efd_contribuicoes")
+    print(f"[EFD]  Lendo arquivos de {path}")
+    _ingerir_pipe_delimited_local(spark, path, EFD_REGISTROS, LOCAL_BRONZE, "efd_contrib")
+
+
+def ingerir_efd_databricks(spark: SparkSession) -> None:
+    print(f"[EFD]  Lendo de {ADLS_LANDING}/efd_contribuicoes")
+    _ingerir_pipe_delimited_databricks(
+        spark,
+        landing_path=f"{ADLS_LANDING}/efd_contribuicoes",
+        registros=EFD_REGISTROS,
+        table_prefix="efd_contrib",
+        checkpoint_key="efd_contribuicoes",
+    )
+    print(f"[EFD]  Tabelas {CATALOG}.bronze.efd_contrib_* atualizadas")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────

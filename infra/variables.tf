@@ -50,17 +50,6 @@ variable "metastore_id" {
   description = "ID do metastore Unity Catalog já criado na conta Databricks."
 }
 
-variable "databricks_admin_group" {
-  type        = string
-  description = "Grupo Databricks que administra o catálogo Nexus."
-  default     = "nexus-tributario-admins"
-}
-
-variable "databricks_data_engineer_group" {
-  type        = string
-  description = "Grupo Databricks que grava nas camadas Bronze e Silver."
-  default     = "nexus-tributario-data-engineers"
-}
 
 variable "vnet_cidr" {
   type        = string
@@ -82,3 +71,4 @@ variable "tags" {
   description = "Tags adicionais aplicadas aos recursos Azure."
   default     = {}
 }
+

@@ -168,27 +168,4 @@ resource "databricks_schema" "layers" {
   comment      = each.value == "controle" ? "Metadados operacionais dos pipelines." : "Camada ${each.value} da arquitetura medallion tributaria."
 }
 
-resource "databricks_grants" "catalog" {
-  catalog = databricks_catalog.nexus.name
-  grant {
-    principal  = var.databricks_admin_group
-    privileges = ["USE_CATALOG", "CREATE_SCHEMA", "MANAGE"]
-  }
-  grant {
-    principal  = var.databricks_data_engineer_group
-    privileges = ["USE_CATALOG", "CREATE_SCHEMA"]
-  }
-}
 
-resource "databricks_grants" "schemas" {
-  for_each = databricks_schema.layers
-  schema   = "${databricks_catalog.nexus.name}.${each.value.name}"
-  grant {
-    principal  = var.databricks_admin_group
-    privileges = ["USE_SCHEMA", "CREATE_TABLE", "CREATE_VOLUME", "MODIFY"]
-  }
-  grant {
-    principal  = var.databricks_data_engineer_group
-    privileges = each.value.name == "gold" ? ["USE_SCHEMA", "SELECT"] : ["USE_SCHEMA", "CREATE_TABLE", "MODIFY"]
-  }
-}
