@@ -45,8 +45,8 @@ select
 
     -- Receita bruta (das NF-e)
     n.v_receita_bruta,
-    round(e.vl_pis_devido / nullif(n.v_receita_bruta, 0) * 100, 2)    as carga_pis_pct,
-    round(e.vl_cofins_devido / nullif(n.v_receita_bruta, 0) * 100, 2) as carga_cofins_pct,
+    round(e.vl_pis_devido / n.v_receita_bruta * 100, 2)    as carga_pis_pct,
+    round(e.vl_cofins_devido / n.v_receita_bruta * 100, 2) as carga_cofins_pct,
 
     e.qtd_documentos,
     current_timestamp() as dt_carga

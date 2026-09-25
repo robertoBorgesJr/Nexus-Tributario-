@@ -15,7 +15,7 @@ nfe as (
         uf_emitente    as uf,
         competencia,
         sum(v_bc_icms) as v_bc_icms_nfe,
-        sum(v_icms)    as v_icms_nfe,
+        nullif(sum(v_icms), 0) as v_icms_nfe,
         count(distinct chv_nfe) as qtd_nfe
     from {{ ref('stg_nfe__itens') }}
     group by cnpj_emitente, uf_emitente, competencia
@@ -48,7 +48,7 @@ select
     -- Divergência (base para o alerta)
     round(n.v_icms_nfe - s.vl_icms_notas, 2) as divergencia_icms,
     round(
-        abs(n.v_icms_nfe - s.vl_icms_notas) / nullif(n.v_icms_nfe, 0) * 100, 2
+        abs(n.v_icms_nfe - s.vl_icms_notas) / n.v_icms_nfe * 100, 2
     )                                          as divergencia_pct,
 
     current_timestamp() as dt_carga

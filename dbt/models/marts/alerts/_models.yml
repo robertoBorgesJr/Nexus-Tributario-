@@ -1,0 +1,36 @@
+version: 2
+
+models:
+  - name: alert_conciliacao_icms
+    description: "Alertas de divergência ICMS entre NF-e emitidas e SPED Fiscal — apenas registros com diferença > R$50 ou > 0,5%"
+    columns:
+      - name: apuracao_key
+        description: "FK para fact_apuracao_icms"
+        tests:
+          - not_null
+      - name: cnpj_empresa
+        tests:
+          - not_null
+      - name: competencia
+        tests:
+          - not_null
+      - name: divergencia_icms
+        description: "Diferença absoluta NF-e − SPED em reais"
+        tests:
+          - not_null
+      - name: divergencia_pct
+        description: "Divergência percentual sobre o ICMS NF-e"
+        tests:
+          - not_null
+      - name: severidade
+        description: "Classificação de risco: CRITICO (>R$1k ou >5%), ALTO (>R$200 ou >2%), MEDIO (>R$50 ou >0,5%)"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['CRITICO', 'ALTO', 'MEDIO', 'BAIXO']
+      - name: tipo_divergencia
+        description: "Direção da divergência: NF_E_MAIOR_QUE_SPED, SPED_MAIOR_QUE_NF_E ou OK"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['NF_E_MAIOR_QUE_SPED', 'SPED_MAIOR_QUE_NF_E', 'OK']

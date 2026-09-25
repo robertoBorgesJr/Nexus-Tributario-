@@ -1,0 +1,143 @@
+version: 2
+
+models:
+  - name: fact_apuracao_pis_cofins
+    description: "Fato de apuração mensal PIS/COFINS — cruzamento EFD Contribuições × NF-e por empresa/competência"
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [cnpj_empresa, competencia]
+    columns:
+      - name: apuracao_key
+        description: "Chave surrogate do registro de apuração"
+        tests:
+          - unique
+          - not_null
+      - name: empresa_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_empresa')
+              field: empresa_key
+      - name: cnpj_empresa
+        tests:
+          - not_null
+      - name: competencia
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_periodo')
+              field: competencia
+      - name: qtd_documentos
+        tests:
+          - not_null
+
+  - name: fact_apuracao_icms
+    description: "Fato de apuração mensal ICMS — cruzamento SPED Fiscal × NF-e por empresa/competência"
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [cnpj_empresa, competencia]
+    columns:
+      - name: apuracao_key
+        description: "Chave surrogate do registro de apuração"
+        tests:
+          - unique
+          - not_null
+      - name: empresa_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_empresa')
+              field: empresa_key
+      - name: cnpj_empresa
+        tests:
+          - not_null
+      - name: competencia
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_periodo')
+              field: competencia
+      - name: qtd_docs_sped
+        tests:
+          - not_null
+
+  - name: fact_nfe_itens
+    description: "Fato NF-e itens — uma linha por item de nota fiscal emitida"
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [chv_nfe, num_item]
+    columns:
+      - name: item_key
+        description: "Chave surrogate do item"
+        tests:
+          - unique
+          - not_null
+      - name: empresa_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_empresa')
+              field: empresa_key
+      - name: produto_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_produto')
+              field: produto_key
+      - name: cfop
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_cfop')
+              field: cfop
+      - name: competencia
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_periodo')
+              field: competencia
+      - name: chv_nfe
+        tests:
+          - not_null
+      - name: num_item
+        tests:
+          - not_null
+
+  - name: fact_conciliacao_produto
+    description: "Fato de conciliação por produto — cruzamento NF-e × SPED × EFD por empresa/competência/produto"
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [cnpj_empresa, competencia, cod_produto]
+    columns:
+      - name: conciliacao_key
+        description: "Chave surrogate do registro de conciliação"
+        tests:
+          - unique
+          - not_null
+      - name: empresa_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_empresa')
+              field: empresa_key
+      - name: produto_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_produto')
+              field: produto_key
+      - name: cnpj_empresa
+        tests:
+          - not_null
+      - name: competencia
+        tests:
+          - not_null
+      - name: cod_produto
+        tests:
+          - not_null
+      - name: status_declaracao
+        description: "Flag de presença em cada fonte: OK, SEM_DECLARACAO_SPED, SEM_DECLARACAO_EFD"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['OK', 'SEM_DECLARACAO_SPED', 'SEM_DECLARACAO_EFD']

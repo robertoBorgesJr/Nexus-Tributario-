@@ -12,36 +12,39 @@ with cabecalho as (
         uf_emitente,
         cnpj_destinatario,
         uf_destinatario,
-        to_date(dt_emissao, 'yyyyMMdd')  as dt_emissao,
-        cast(serie as int)               as serie,
-        cast(num_nf as int)              as num_nf,
-        cast(tp_nf as int)               as tp_nf,      -- 0=entrada 1=saída
+        to_date(nullif(dt_emissao, ''), 'yyyyMMdd') as dt_emissao,
+        try_cast(nullif(serie,  '') as int)          as serie,
+        try_cast(nullif(num_nf, '') as int)          as num_nf,
         crt
     from {{ source('bronze_nfe', 'nfe_cabecalho') }}
+    where chv_nfe is not null
+      and length(chv_nfe) = 44
 ),
 
 itens as (
     select
         chv_nfe,
-        cast(num_item as int)            as num_item,
+        try_cast(nullif(num_item, '') as int)                                              as num_item,
         cod_produto,
         ncm,
         cfop,
         ucom,
-        cast(qtd as decimal(18, 4))      as qtd,
-        cast(v_unit as decimal(18, 4))   as v_unit,
-        cast(v_prod as decimal(18, 2))   as v_prod,
+        greatest(try_cast(nullif(qtd,    '') as decimal(18,4)), 0.0000)                    as qtd,
+        greatest(try_cast(nullif(v_unit, '') as decimal(18,4)), 0.0000)                    as v_unit,
+        -- v_prod é denominador nos cálculos de carga tributária; NULLIF(0) habilita divisão segura
+        nullif(greatest(try_cast(nullif(v_prod,   '') as decimal(18,2)), 0.00), 0.00)      as v_prod,
         cst_icms,
-        cast(v_bc_icms as decimal(18, 2)) as v_bc_icms,
-        cast(aliq_icms as decimal(7, 2)) as aliq_icms,
-        cast(v_icms as decimal(18, 2))   as v_icms,
-        cast(v_ipi as decimal(18, 2))    as v_ipi,
+        greatest(try_cast(nullif(v_bc_icms, '') as decimal(18,2)), 0.00)                   as v_bc_icms,
+        greatest(try_cast(nullif(aliq_icms, '') as decimal(7,2)),  0.00)                   as aliq_icms,
+        greatest(try_cast(nullif(v_icms,    '') as decimal(18,2)), 0.00)                   as v_icms,
+        greatest(try_cast(nullif(v_ipi,     '') as decimal(18,2)), 0.00)                   as v_ipi,
         cst_pis,
-        cast(v_pis as decimal(18, 2))    as v_pis,
+        greatest(try_cast(nullif(v_pis,     '') as decimal(18,2)), 0.00)                   as v_pis,
         cst_cofins,
-        cast(v_cofins as decimal(18, 2)) as v_cofins,
-        cast(v_nf as decimal(18, 2))     as v_nf
+        greatest(try_cast(nullif(v_cofins,  '') as decimal(18,2)), 0.00)                   as v_cofins,
+        greatest(try_cast(nullif(v_nf,      '') as decimal(18,2)), 0.00)                   as v_nf
     from {{ source('bronze_nfe', 'nfe_itens') }}
+    where chv_nfe is not null
 )
 
 select
@@ -51,7 +54,7 @@ select
     c.cnpj_destinatario,
     c.uf_destinatario,
     c.dt_emissao,
-    date_format(c.dt_emissao, 'yyyyMM')   as competencia,
+    date_format(c.dt_emissao, 'yyyyMM') as competencia,
     c.num_nf,
     c.crt,
     i.num_item,
@@ -74,3 +77,4 @@ select
     i.v_nf
 from itens i
 inner join cabecalho c using (chv_nfe)
+where c.dt_emissao is not null

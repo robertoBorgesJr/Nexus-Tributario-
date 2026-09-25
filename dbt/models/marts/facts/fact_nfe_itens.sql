@@ -43,7 +43,7 @@ select
     s.v_bc_icms,
     s.aliq_icms,
     s.v_icms,
-    round(s.v_icms / nullif(s.v_prod, 0) * 100, 2) as carga_icms_pct,
+    round(s.v_icms / s.v_prod * 100, 2) as carga_icms_pct,
 
     -- IPI
     s.v_ipi,
@@ -53,11 +53,11 @@ select
     s.v_pis,
     s.cst_cofins,
     s.v_cofins,
-    round((s.v_pis + s.v_cofins) / nullif(s.v_prod, 0) * 100, 2) as carga_pis_cofins_pct,
+    round((s.v_pis + s.v_cofins) / s.v_prod * 100, 2) as carga_pis_cofins_pct,
 
     -- Total da nota
     s.v_nf,
-    round((s.v_icms + s.v_ipi + s.v_pis + s.v_cofins) / nullif(s.v_prod, 0) * 100, 2)
+    round((s.v_icms + s.v_ipi + s.v_pis + s.v_cofins) / s.v_prod * 100, 2)
         as carga_tributaria_total_pct,
 
     current_timestamp() as dt_carga

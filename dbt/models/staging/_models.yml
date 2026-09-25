@@ -1,0 +1,287 @@
+version: 2
+
+models:
+  - name: stg_efd_contrib__apuracao
+    description: "Staging: apuração mensal de PIS/COFINS da EFD Contribuições (M200 + M600)"
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [cnpj_empresa, competencia]
+    columns:
+      - name: cnpj_empresa
+        description: "CNPJ da empresa"
+        tests:
+          - not_null
+
+      - name: competencia
+        description: "Competência de apuração no formato YYYYMM"
+        tests:
+          - not_null
+
+      - name: vl_pis_devido
+        description: "Valor do PIS apurado (M200). NULL quando competência só existe em M600 ou quando o valor de origem é inválido (try_cast)."
+        tests:
+          - not_null:
+              config:
+                severity: warn
+                where: "vl_cofins_devido is not null"
+
+      - name: vl_cofins_devido
+        description: "Valor do COFINS apurado (M600). NULL quando competência só existe em M200 ou quando o valor de origem é inválido (try_cast)."
+        tests:
+          - not_null:
+              config:
+                severity: warn
+                where: "vl_pis_devido is not null"
+
+      - name: vl_bc_pis_total
+        description: "Soma das bases de cálculo do PIS nas notas fiscais (C100)"
+
+      - name: vl_pis_notas
+        description: "Soma do PIS destacado nas notas fiscais (C100)"
+
+      - name: vl_bc_cofins_total
+        description: "Soma das bases de cálculo do COFINS nas notas fiscais (C100)"
+
+      - name: vl_cofins_notas
+        description: "Soma do COFINS destacado nas notas fiscais (C100)"
+
+      - name: qtd_documentos
+        description: "Quantidade de documentos fiscais distintos vinculados à competência"
+        tests:
+          - not_null
+
+  - name: stg_sped_fiscal__apuracao
+    description: "Staging: apuração mensal de ICMS do SPED Fiscal (registro E110) com totais de C100"
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [cnpj_empresa, competencia]
+    columns:
+      - name: cnpj_empresa
+        description: "CNPJ da empresa"
+        tests:
+          - not_null
+
+      - name: competencia
+        description: "Competência de apuração no formato YYYYMM"
+        tests:
+          - not_null
+
+      - name: vl_debitos_icms
+        description: "Total de débitos de ICMS do período (E110). NULL se try_cast falhar na origem."
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+      - name: vl_creditos_icms
+        description: "Total de créditos de ICMS do período (E110). NULL se try_cast falhar na origem."
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+      - name: vl_icms_recolher
+        description: "ICMS a recolher no período (E110). NULL se try_cast falhar na origem."
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+      - name: vl_saldo_credor
+        description: "Saldo credor a transportar para o período seguinte (E110)"
+
+      - name: vl_bc_icms_total
+        description: "Soma das bases de cálculo do ICMS nas notas fiscais (C100)"
+
+      - name: vl_icms_notas
+        description: "Soma do ICMS destacado nas notas fiscais (C100)"
+
+      - name: vl_pis_sped
+        description: "Soma do PIS nas notas fiscais do SPED Fiscal (C100)"
+
+      - name: vl_cofins_sped
+        description: "Soma do COFINS nas notas fiscais do SPED Fiscal (C100)"
+
+      - name: qtd_documentos
+        description: "Quantidade de documentos fiscais distintos vinculados à competência"
+        tests:
+          - not_null
+
+  - name: stg_nfe__itens
+    description: "Staging: cruza cabeçalho e itens da NF-e, normaliza tipos e renomeia colunas"
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [chv_nfe, num_item]
+    columns:
+      - name: chv_nfe
+        description: "Chave de acesso da NF-e (44 dígitos)"
+        tests:
+          - not_null
+
+      - name: num_item
+        description: "Número sequencial do item na nota"
+        tests:
+          - not_null
+
+      - name: cnpj_emitente
+        description: "CNPJ do emitente"
+        tests:
+          - not_null
+
+      - name: dt_emissao
+        description: "Data de emissão. NULL se o valor de origem não estiver no formato yyyyMMdd."
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+      - name: competencia
+        description: "Competência derivada da data de emissão no formato YYYYMM"
+
+      - name: num_nf
+        description: "Número da nota fiscal. NULL se try_cast falhar na origem."
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+      - name: tp_nf
+        description: "Tipo da nota fiscal (0=entrada, 1=saída). NULL se try_cast falhar na origem."
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+      - name: v_prod
+        description: "Valor total dos produtos/serviços do item. NULL se try_cast falhar na origem."
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+      - name: v_nf
+        description: "Valor total da nota fiscal. NULL se try_cast falhar na origem."
+        tests:
+          - not_null:
+              config:
+                severity: warn
+
+      - name: cod_produto
+        description: "Código do produto no sistema do emitente"
+
+      - name: ncm
+        description: "Código NCM do produto"
+
+      - name: cfop
+        description: "Código Fiscal de Operações e Prestações"
+
+      - name: ucom
+        description: "Unidade comercial"
+
+      - name: qtd
+        description: "Quantidade comercializada"
+
+      - name: v_unit
+        description: "Valor unitário do produto"
+
+      - name: cst_icms
+        description: "Código de Situação Tributária do ICMS"
+
+      - name: v_bc_icms
+        description: "Base de cálculo do ICMS"
+
+      - name: aliq_icms
+        description: "Alíquota do ICMS"
+
+      - name: v_icms
+        description: "Valor do ICMS"
+
+      - name: v_ipi
+        description: "Valor do IPI"
+
+      - name: cst_pis
+        description: "Código de Situação Tributária do PIS"
+
+      - name: v_pis
+        description: "Valor do PIS"
+
+      - name: cst_cofins
+        description: "Código de Situação Tributária do COFINS"
+
+      - name: v_cofins
+        description: "Valor do COFINS"
+
+      - name: uf_emitente
+        description: "UF do emitente"
+
+      - name: cnpj_destinatario
+        description: "CNPJ do destinatário"
+
+      - name: uf_destinatario
+        description: "UF do destinatário"
+
+      - name: serie
+        description: "Série da nota fiscal"
+
+      - name: crt
+        description: "Código de Regime Tributário do emitente"
+
+  - name: stg_efd_contrib__itens
+    description: "Staging: itens de PIS/COFINS da EFD Contribuições (C170) agregados por empresa, competência e produto"
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [cnpj_empresa, competencia, cod_produto]
+    columns:
+      - name: cnpj_empresa
+        description: "CNPJ da empresa"
+        tests:
+          - not_null
+      - name: competencia
+        description: "Competência de apuração no formato YYYYMM"
+        tests:
+          - not_null
+      - name: cod_produto
+        description: "Código do produto (renomeado de cod_item)"
+        tests:
+          - not_null
+      - name: vl_item_total
+        description: "Soma do valor total dos itens C170"
+        tests:
+          - not_null:
+              config:
+                severity: warn
+      - name: vl_pis_efd
+        description: "Soma do PIS declarado nos itens C170"
+      - name: vl_cofins_efd
+        description: "Soma do COFINS declarado nos itens C170"
+
+  - name: stg_sped_fiscal__itens
+    description: "Staging: itens de ICMS do SPED Fiscal (C170) agregados por empresa, competência e produto"
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [cnpj_empresa, competencia, cod_produto]
+    columns:
+      - name: cnpj_empresa
+        description: "CNPJ da empresa"
+        tests:
+          - not_null
+      - name: competencia
+        description: "Competência de apuração no formato YYYYMM"
+        tests:
+          - not_null
+      - name: cod_produto
+        description: "Código do produto (renomeado de cod_item)"
+        tests:
+          - not_null
+      - name: vl_item_total
+        description: "Soma do valor total dos itens C170"
+        tests:
+          - not_null:
+              config:
+                severity: warn
+      - name: vl_icms_sped
+        description: "Soma do ICMS declarado nos itens C170"
+      - name: vl_pis_sped
+        description: "Soma do PIS declarado nos itens C170"
+      - name: vl_cofins_sped
+        description: "Soma do COFINS declarado nos itens C170"

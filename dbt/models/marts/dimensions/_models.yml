@@ -1,0 +1,110 @@
+version: 2
+
+models:
+  - name: dim_empresa
+    description: "Dimensão empresa — uma linha por CNPJ único identificado nas NF-e"
+    columns:
+      - name: empresa_key
+        description: "Chave surrogate (hash MD5 do CNPJ)"
+        tests:
+          - unique
+          - not_null
+      - name: cnpj
+        description: "CNPJ do emitente"
+        tests:
+          - unique
+          - not_null
+      - name: uf
+        description: "UF do emitente"
+        tests:
+          - not_null
+      - name: crt
+        description: "Código de Regime Tributário (1=Simples, 2=Simples Excesso, 3=Normal)"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['1', '2', '3']
+              config:
+                severity: warn
+      - name: regime_tributario
+        tests:
+          - not_null
+
+  - name: dim_produto
+    description: "Dimensão produto — uma linha por código de produto único identificado nas NF-e"
+    columns:
+      - name: produto_key
+        description: "Chave surrogate (hash MD5 do cod_produto)"
+        tests:
+          - unique
+          - not_null
+      - name: cod_produto
+        description: "Código do produto no sistema do emitente"
+        tests:
+          - not_null
+
+  - name: dim_cfop
+    description: "Dimensão CFOP — CFOPs distintos identificados nas NF-e com classificação de sentido"
+    columns:
+      - name: cfop
+        description: "Código Fiscal de Operações e Prestações (4 dígitos)"
+        tests:
+          - unique
+          - not_null
+      - name: digito_operacao
+        description: "Primeiro dígito do CFOP — determina natureza da operação"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['1', '2', '3', '5', '6', '7']
+      - name: tipo_operacao
+        tests:
+          - not_null
+      - name: sentido
+        description: "Direção da operação: Entrada (CFOPs 1xx-3xx) ou Saída (CFOPs 5xx-7xx)"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Entrada', 'Saída']
+
+  - name: dim_periodo
+    description: "Dimensão período — uma linha por competência mensal derivada das NF-e"
+    columns:
+      - name: competencia
+        description: "Competência no formato YYYYMM"
+        tests:
+          - unique
+          - not_null
+      - name: ano
+        tests:
+          - not_null
+      - name: mes
+        tests:
+          - not_null
+          - accepted_values:
+              values: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+      - name: nome_mes
+        tests:
+          - not_null
+      - name: trimestre
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['T1', 'T2', 'T3', 'T4']
+
+  - name: dim_uf
+    description: "Dimensão UF — tabela de domínio estática com todas as 27 UFs brasileiras"
+    columns:
+      - name: uf
+        description: "Sigla da UF (2 letras)"
+        tests:
+          - unique
+          - not_null
+      - name: nome_uf
+        tests:
+          - not_null
+      - name: regiao
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Norte', 'Nordeste', 'Centro-Oeste', 'Sudeste', 'Sul']

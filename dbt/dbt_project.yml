@@ -29,8 +29,11 @@ models:
         +materialized: table
         +schema: gold
 
+flags:
+  use_materialization_v2: true
+
 vars:
-  catalog: nexus_tributario
+  catalog: nexus_tributario_prod
   bronze_schema: bronze
   silver_schema: silver
   gold_schema: gold

@@ -23,7 +23,14 @@ sources:
       - name: sped_fiscal_c100
         description: "Cabeçalho dos documentos fiscais no SPED"
       - name: sped_fiscal_c170
-        description: "Itens dos documentos fiscais no SPED"
+        description: "Itens dos documentos fiscais no SPED (grão: item de nota declarado)"
+        columns:
+          - name: cnpj_empresa
+            tests: [not_null]
+          - name: competencia
+            tests: [not_null]
+          - name: cod_item
+            tests: [not_null]
       - name: sped_fiscal_e110
         description: "Apuração mensal do ICMS por empresa"
 
@@ -35,7 +42,14 @@ sources:
       - name: efd_contrib_c100
         description: "Cabeçalho dos documentos na EFD Contribuições"
       - name: efd_contrib_c170
-        description: "Itens dos documentos na EFD Contribuições"
+        description: "Itens dos documentos na EFD Contribuições (grão: item de nota declarado)"
+        columns:
+          - name: cnpj_empresa
+            tests: [not_null]
+          - name: competencia
+            tests: [not_null]
+          - name: cod_item
+            tests: [not_null]
       - name: efd_contrib_m200
         description: "Apuração mensal do PIS"
       - name: efd_contrib_m600
