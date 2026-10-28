@@ -1,0 +1,40 @@
+schema: spec-driven
+
+context: |
+  Todos os artefatos (proposal, spec, design, tasks) devem ser escritos em Português Brasileiro.
+
+  Plataforma alvo: Azure Databricks com Unity Catalog, camadas bronze/silver/gold (padrão medallion).
+  Transformações via dbt 1.8+ com dbt-utils. Ingestão via PySpark (local) ou Auto Loader (Databricks).
+
+  Domínio: pipeline fiscal brasileiro (NF-e modelo 55, SPED Fiscal EFD ICMS/IPI, EFD Contribuições PIS/COFINS).
+
+  Invariantes de domínio que o AI NUNCA pode ignorar:
+  - Chave de acesso NF-e tem exatamente 44 dígitos (length(chv_nfe) = 44)
+  - Apenas documentos com cod_sit = '00' são válidos no SPED Fiscal
+  - Apenas itens com ind_mov = '0' (com movimentação) entram nos cálculos do SPED C170
+  - Divisão segura: sempre usar nullif(..., 0.00) no denominador para evitar divisão por zero
+  - Cast seguro: sempre usar try_cast() + greatest(..., 0.00) para valores monetários e alíquotas
+
+  Convenções dbt obrigatórias:
+  - Staging (silver): prefixo stg_<fonte>__<entidade>, materialização view, em models/staging/
+  - Marts (gold): prefixo fact_, dim_, alert_, materialização table, em models/marts/
+  - Chaves surrogate: dbt_utils.generate_surrogate_key([lista de colunas])
+  - Testes padrão por modelo: unique, not_null nas PKs; relationships nas FKs; accepted_values onde aplicável
+  - Grain de cada fact deve ser documentado no .yml do modelo
+
+rules:
+  proposal:
+    - Incluir explicitamente o que está FORA do escopo
+    - Mencionar qual camada medallion é afetada (bronze / silver / gold)
+  tasks:
+    - Cada tarefa deve caber em no máximo 2 horas de implementação
+    - Incluir tarefa de testes dbt ao final de cada mudança em models/
+
+operations:
+  apply:
+    guidance:
+      - Antes de criar um novo modelo dbt, verificar se existe padrão similar em models/staging/ ou models/marts/ e seguir a mesma estrutura
+      - Nunca remover testes dbt existentes; apenas adicionar novos
+  archive:
+    guidance:
+      - Resumir quais tabelas/views foram criadas ou alteradas e em qual camada

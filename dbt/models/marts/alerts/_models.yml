@@ -1,6 +1,58 @@
 version: 2
 
 models:
+  - name: alert_conciliacao_pis_cofins
+    description: "Alertas de divergência PIS/COFINS entre NF-e emitidas e EFD Contribuições — registros com diferença absoluta > R$50 ou percentual > 0,5% em qualquer tributo"
+    columns:
+      - name: apuracao_key
+        description: "FK para fact_apuracao_pis_cofins"
+        tests:
+          - not_null
+      - name: cnpj_empresa
+        tests:
+          - not_null
+      - name: competencia
+        tests:
+          - not_null
+      - name: divergencia_pis
+        description: "Diferença absoluta PIS: NF-e − EFD em reais"
+        tests:
+          - not_null
+      - name: divergencia_cofins
+        description: "Diferença absoluta COFINS: NF-e − EFD em reais"
+        tests:
+          - not_null
+      - name: severidade_pis
+        description: "Severidade do PIS: CRITICO (>R$1k ou >5%), ALTO (>R$200 ou >2%), MEDIO (>R$50 ou >0,5%), BAIXO"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['CRITICO', 'ALTO', 'MEDIO', 'BAIXO']
+      - name: severidade_cofins
+        description: "Severidade do COFINS: mesmos thresholds que severidade_pis"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['CRITICO', 'ALTO', 'MEDIO', 'BAIXO']
+      - name: severidade_geral
+        description: "Maior severidade entre PIS e COFINS"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['CRITICO', 'ALTO', 'MEDIO', 'BAIXO']
+      - name: tipo_divergencia_pis
+        description: "Direção da divergência PIS: NF_E_MAIOR_QUE_EFD, EFD_MAIOR_QUE_NF_E ou OK"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['NF_E_MAIOR_QUE_EFD', 'EFD_MAIOR_QUE_NF_E', 'OK']
+      - name: tipo_divergencia_cofins
+        description: "Direção da divergência COFINS: NF_E_MAIOR_QUE_EFD, EFD_MAIOR_QUE_NF_E ou OK"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['NF_E_MAIOR_QUE_EFD', 'EFD_MAIOR_QUE_NF_E', 'OK']
+
   - name: alert_conciliacao_icms
     description: "Alertas de divergência ICMS entre NF-e emitidas e SPED Fiscal — apenas registros com diferença > R$50 ou > 0,5%"
     columns:

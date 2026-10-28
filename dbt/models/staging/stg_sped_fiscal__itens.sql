@@ -2,7 +2,7 @@
   config(
     materialized = 'view',
     description  = 'Staging: itens declarados no SPED Fiscal (C170), '
-                   'agregados por empresa × competência × produto × CFOP'
+                   'agregados por empresa × competência × produto'
   )
 }}
 
@@ -10,8 +10,6 @@ select
     cnpj_empresa,
     competencia,
     cod_item                                                                                          as cod_produto,
-    cst_icms,
-    cfop,
     count(*)                                                                                          as qtd_linhas_c170,
     cast(sum(greatest(try_cast(nullif(qtd,          '') as decimal(18,4)), 0.0000)) as decimal(18,4)) as qtd_total,
     cast(sum(greatest(try_cast(nullif(vl_item,      '') as decimal(18,2)), 0.00))   as decimal(18,2)) as vl_item_total,
@@ -28,4 +26,4 @@ where ind_mov      = '0'
   and cnpj_empresa is not null
   and competencia  is not null
   and cod_item     is not null
-group by cnpj_empresa, competencia, cod_item, cst_icms, cfop
+group by cnpj_empresa, competencia, cod_item

@@ -18,5 +18,10 @@ pyspark>=3.5
 dbt-databricks>=1.8
 # dbt-utils é um pacote dbt, não pip — instalado via: dbt deps (veja dbt/packages.yml)
 
+# ── API REST ─────────────────────────────────────────────────────────────────
+fastapi>=0.115
+uvicorn[standard]>=0.30
+databricks-sql-connector>=3.4
+
 # ── Utilitários ──────────────────────────────────────────────────────────────
 python-dotenv>=1.0

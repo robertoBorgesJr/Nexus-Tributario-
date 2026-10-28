@@ -1,12 +1,20 @@
 {{
   config(
-    materialized = 'table',
-    description  = 'Grão: item de NF-e. Principal fato do modelo analítico.'
+    materialized     = 'incremental',
+    incremental_strategy = 'merge',
+    unique_key       = 'item_key',
+    description      = 'Grão: item de NF-e. Principal fato do modelo analítico.'
   )
 }}
 
 with stg as (
     select * from {{ ref('stg_nfe__itens') }}
+    {% if is_incremental() %}
+    where competencia >= (
+        select date_format(add_months(to_date(max(competencia), 'yyyyMM'), -1), 'yyyyMM')
+        from {{ this }}
+    )
+    {% endif %}
 ),
 
 dim_empresa as (select cnpj, empresa_key from {{ ref('dim_empresa') }}),

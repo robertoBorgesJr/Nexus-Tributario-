@@ -1,0 +1,61 @@
+name: dbt CD
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "dbt/models/**"
+      - "dbt/macros/**"
+      - "dbt/tests/**"
+      - "dbt/dbt_project.yml"
+      - "dbt/packages.yml"
+
+jobs:
+  dbt-prod:
+    name: Deploy em produção
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Instalar dbt-databricks
+        run: pip install dbt-databricks
+
+      - name: Criar profiles.yml
+        working-directory: dbt
+        run: |
+          cat > profiles.yml << 'EOF'
+          nexus_tributario_databricks:
+            target: prod
+            outputs:
+              prod:
+                type: databricks
+                catalog: ${{ secrets.DATABRICKS_CATALOG }}
+                schema: silver
+                host: ${{ secrets.DATABRICKS_HOST }}
+                http_path: ${{ secrets.DATABRICKS_HTTP_PATH }}
+                token: ${{ secrets.DATABRICKS_TOKEN }}
+                threads: 8
+          EOF
+
+      - name: dbt deps
+        working-directory: dbt
+        run: dbt deps
+
+      - name: dbt build (produção completa)
+        working-directory: dbt
+        run: dbt build --target prod
+
+      # Salva o manifest.json para que o CI dos próximos PRs possa calcular state:modified+
+      - name: Salvar manifest de produção
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-manifest-prod
+          path: dbt/target/manifest.json
+          retention-days: 90
+          overwrite: true

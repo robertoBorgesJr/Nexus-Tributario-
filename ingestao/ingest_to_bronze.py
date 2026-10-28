@@ -105,6 +105,7 @@ NFE_CABECALHO_SCHEMA = StructType([
     StructField("dt_emissao",        StringType()),
     StructField("serie",             StringType()),
     StructField("num_nf",            StringType()),
+    StructField("tp_nf",             StringType()),
     StructField("crt",               StringType()),
 ])
 
@@ -159,6 +160,7 @@ def parse_nfe_cabecalho(xml_text: str):
             (tx(ide, "dhEmi") or "")[:10].replace("-", ""),
             tx(ide, "serie"),
             tx(ide, "nNF"),
+            tx(ide, "tpNF"),
             tx(emit, "CRT"),
         )
     except ET.ParseError:
@@ -258,6 +260,7 @@ def _parse_nfe_python(xml_path: Path):
             "competencia":       dt_emissao[:6],
             "serie":             tx(ide, "serie"),
             "num_nf":            tx(ide, "nNF"),
+            "tp_nf":             tx(ide, "tpNF"),
             "crt":               tx(emit, "CRT"),
         }
 
@@ -355,7 +358,7 @@ def ingerir_nfe_databricks(spark: SparkSession) -> None:
                 col("cab.uf_emitente"),     col("cab.cnpj_destinatario"),
                 col("cab.uf_destinatario"), col("cab.dt_emissao"),
                 col("cab.serie"),           col("cab.num_nf"),
-                col("cab.crt"),
+                col("cab.tp_nf"),           col("cab.crt"),
             )
             .filter(col("chv_nfe").isNotNull())
             # competencia = YYYYMM derivado de dt_emissao (YYYYMMDD → primeiros 6 chars).
