@@ -1,12 +1,20 @@
 {{
   config(
-    materialized = 'table',
-    description  = 'Grão: período × empresa × UF. Apuração ICMS do SPED Fiscal com totais das NF-e para conciliação.'
+    materialized         = 'incremental',
+    incremental_strategy = 'merge',
+    unique_key           = 'apuracao_key',
+    description          = 'Grão: período × empresa × UF. Apuração ICMS do SPED Fiscal com totais das NF-e para conciliação.'
   )
 }}
 
 with sped as (
     select * from {{ ref('stg_sped_fiscal__apuracao') }}
+    {% if is_incremental() %}
+    where competencia >= (
+        select date_format(add_months(to_date(max(competencia), 'yyyyMM'), -1), 'yyyyMM')
+        from {{ this }}
+    )
+    {% endif %}
 ),
 
 nfe as (
@@ -18,6 +26,12 @@ nfe as (
         nullif(sum(v_icms), 0) as v_icms_nfe,
         count(distinct chv_nfe) as qtd_nfe
     from {{ ref('stg_nfe__itens') }}
+    {% if is_incremental() %}
+    where competencia >= (
+        select date_format(add_months(to_date(max(competencia), 'yyyyMM'), -1), 'yyyyMM')
+        from {{ this }}
+    )
+    {% endif %}
     group by cnpj_emitente, uf_emitente, competencia
 ),
 

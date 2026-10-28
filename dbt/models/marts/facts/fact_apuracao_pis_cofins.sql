@@ -1,12 +1,20 @@
 {{
   config(
-    materialized = 'table',
-    description  = 'Grão: período × empresa. Apuração PIS/COFINS da EFD Contribuições.'
+    materialized         = 'incremental',
+    incremental_strategy = 'merge',
+    unique_key           = 'apuracao_key',
+    description          = 'Grão: período × empresa. Apuração PIS/COFINS da EFD Contribuições.'
   )
 }}
 
 with efd as (
     select * from {{ ref('stg_efd_contrib__apuracao') }}
+    {% if is_incremental() %}
+    where competencia >= (
+        select date_format(add_months(to_date(max(competencia), 'yyyyMM'), -1), 'yyyyMM')
+        from {{ this }}
+    )
+    {% endif %}
 ),
 
 nfe as (
@@ -17,6 +25,12 @@ nfe as (
         sum(v_cofins) as v_cofins_nfe,
         sum(v_prod)   as v_receita_bruta
     from {{ ref('stg_nfe__itens') }}
+    {% if is_incremental() %}
+    where competencia >= (
+        select date_format(add_months(to_date(max(competencia), 'yyyyMM'), -1), 'yyyyMM')
+        from {{ this }}
+    )
+    {% endif %}
     group by cnpj_emitente, competencia
 ),
 

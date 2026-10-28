@@ -1,9 +1,11 @@
 {{
   config(
-    materialized = 'table',
-    description  = 'Grão: empresa × competência × produto. Cruza NF-e emitidas com SPED Fiscal '
-                   'e EFD Contribuições no nível de produto, habilitando drill-down '
-                   'das divergências detectadas em fact_apuracao_icms.'
+    materialized         = 'incremental',
+    incremental_strategy = 'merge',
+    unique_key           = 'conciliacao_key',
+    description          = 'Grão: empresa × competência × produto. Cruza NF-e emitidas com SPED Fiscal '
+                           'e EFD Contribuições no nível de produto, habilitando drill-down '
+                           'das divergências detectadas em fact_apuracao_icms.'
   )
 }}
 
@@ -19,6 +21,12 @@ with nfe as (
         nullif(sum(v_pis),    0)          as v_pis_nfe,
         nullif(sum(v_cofins), 0)          as v_cofins_nfe
     from {{ ref('stg_nfe__itens') }}
+    {% if is_incremental() %}
+    where competencia >= (
+        select date_format(add_months(to_date(max(competencia), 'yyyyMM'), -1), 'yyyyMM')
+        from {{ this }}
+    )
+    {% endif %}
     group by cnpj_emitente, competencia, cod_produto
 ),
 

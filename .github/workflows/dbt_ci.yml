@@ -1,0 +1,78 @@
+name: dbt CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dbt/models/**"
+      - "dbt/macros/**"
+      - "dbt/tests/**"
+      - "dbt/dbt_project.yml"
+      - "dbt/packages.yml"
+
+jobs:
+  dbt-ci:
+    name: Validar modelos dbt
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Instalar dbt-databricks
+        run: pip install dbt-databricks
+
+      - name: Criar profiles.yml
+        working-directory: dbt
+        run: |
+          cat > profiles.yml << 'EOF'
+          nexus_tributario_databricks:
+            target: dev
+            outputs:
+              dev:
+                type: databricks
+                catalog: ${{ secrets.DATABRICKS_CATALOG }}
+                schema: silver
+                host: ${{ secrets.DATABRICKS_HOST }}
+                http_path: ${{ secrets.DATABRICKS_HTTP_PATH }}
+                token: ${{ secrets.DATABRICKS_TOKEN }}
+                threads: 4
+          EOF
+
+      - name: dbt deps
+        working-directory: dbt
+        run: dbt deps
+
+      - name: dbt compile
+        working-directory: dbt
+        run: dbt compile
+
+      # Baixa o manifest.json salvo pelo último deploy em produção.
+      # Na primeira execução do pipeline não haverá artefato — continue-on-error garante que o job não falhe.
+      - name: Baixar manifest de produção (Slim CI)
+        id: download-manifest
+        uses: actions/download-artifact@v4
+        with:
+          name: dbt-manifest-prod
+          path: dbt/artifacts
+        continue-on-error: true
+
+      # state:modified+ = somente modelos alterados neste PR + seus dependentes.
+      # --defer = modelos não modificados são resolvidos a partir das tabelas de produção (sem recriar).
+      - name: dbt build (modelos modificados)
+        working-directory: dbt
+        run: |
+          if [ -f artifacts/manifest.json ]; then
+            echo "Manifest encontrado — rodando Slim CI (state:modified+)"
+            dbt build \
+              --select state:modified+ \
+              --defer \
+              --state ./artifacts
+          else
+            echo "Sem manifest de produção — rodando build completo no primeiro ciclo"
+            dbt build
+          fi
